@@ -16,6 +16,14 @@ using std::function;
 
 class Parser
 {
+    using Option_Parser = function<void(const vector<string> &)>;
+
+    struct Option
+    {
+        Option_Parser parser;
+        int param_count = 0;
+    };
+
 public:
     class Error : public std::exception
     {
@@ -29,27 +37,13 @@ public:
         }
     };
 
-    struct Invalid_Option_Value : public Error
+    struct Invalid_Option_Param : public Error
     {
-        Invalid_Option_Value(const string & o, const string & v):
+        Invalid_Option_Param(const string & o, const string & v):
             Error("Invalid value '" + v + "' for option " + o) {}
     };
 
-    struct Missing_Option_Value : public Error
-    {
-        Missing_Option_Value(const string & o):
-            Error("Missing value for option " + o) {}
-    };
-
-    struct Redundant_Option_Value : public Error
-    {
-        Redundant_Option_Value(const string & o):
-            Error("Redundant value for option " + o) {}
-    };
-
-    struct Option_Value_Error {};
-
-    using Parser_Function = function<void(const string &)>;
+    struct Option_Param_Error {};
 
     template <typename T>
     static
@@ -58,52 +52,50 @@ public:
         istringstream text_stream(text);
         text_stream >> value;
         if (!text_stream || text_stream.tellg() < text.size())
-            throw Option_Value_Error();
+            throw Option_Param_Error();
     }
 
     template <typename T>
     void add_option(const string & name, T & destination, const string & description = string())
     {
-        auto parser = [name, &destination](const string & value)
-        {
-            if (value.empty())
-                throw Missing_Option_Value(name);
+        auto & option = options[name];
 
+        option.param_count = 1;
+
+        option.parser = [name, &destination](const vector<string> & values)
+        {
+            auto & value = values[0];
             try {
                 parse_value(value, destination);
             }
-            catch (Option_Value_Error &) {
-                throw Invalid_Option_Value(name, value);
+            catch (Option_Param_Error &) {
+                throw Invalid_Option_Param(name, value);
             }
         };
-
-        option_parsers.emplace(name, parser);
     }
 
     void add_option(const string & name, string & destination, const string & description = string())
     {
-        auto parser = [name, &destination](const string & value)
+        auto & option = options[name];
+
+        option.param_count = 1;
+
+        option.parser = [name, &destination](const vector<string> & params)
         {
-            if (value.empty())
-                throw Missing_Option_Value(name);
-
-            destination = value;
+            destination = params[0];
         };
-
-        option_parsers.emplace(name, parser);
     }
 
     void add_switch(const string & name, bool & destination, bool enable = true, const string & description = string())
     {
-        auto parser = [name, enable, &destination](const string & value)
-        {
-            if (!value.empty())
-                throw Redundant_Option_Value(name);
+        auto & option = options[name];
 
+        option.param_count = 0;
+
+        option.parser = [name, enable, &destination](const vector<string> & params)
+        {
             destination = enable;
         };
-
-        option_parsers.emplace(name, parser);
     }
 
     void save_remaining(vector<string> & destination)
@@ -118,35 +110,41 @@ public:
         ++argv;
 
         int i = 0;
-        while(i < argc)
+        for(; i < argc; ++i)
         {
-            string option = argv[i];
+            string name = argv[i];
 
-            if (option[0] != '-')
+            if (name[0] != '-')
                 break;
 
-            string name;
-            string value;
+            auto option_it = options.find(name);
+            if (option_it == options.end())
+                throw Error("Invalid option: " + name);
 
-            auto separator_pos = option.find('=');
+            auto & option = option_it->second;
 
-            name = option.substr(0,separator_pos);
+            vector<string> params;
 
-            if (separator_pos != string::npos)
+            while(params.size() < option.param_count)
             {
-                value = option.substr(separator_pos+1);
-                if (value.empty())
-                    throw Error("Invalid syntax: " + option);
+                ++i;
+                if (i >= argc)
+                    break;
+                string param = argv[i];
+                if (param[0] == '-')
+                    break;
+                params.push_back(param);
             }
 
-            auto parser_it = option_parsers.find(name);
-            if (parser_it == option_parsers.end())
-                throw Error("Invalid option: " + option);
+            if (params.size() < option.param_count)
+            {
+                std::ostringstream msg;
+                msg << "Option " << name << " requires " << option.param_count
+                    << " parameters, but " << params.size() << " given.";
+                throw Error(msg.str());
+            }
 
-            auto & parser = parser_it->second;
-            parser(value);
-
-            ++i;
+            option.parser(params);
         }
 
         if (remaining_args)
@@ -163,7 +161,8 @@ public:
     }
 
 private:
-    unordered_map<string, Parser_Function> option_parsers;
+
+    unordered_map<string, Option> options;
     vector<string> * remaining_args = nullptr;
 };
 
