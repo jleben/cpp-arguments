@@ -98,7 +98,12 @@ public:
         };
     }
 
-    void save_remaining(vector<string> & destination)
+    void remaining_argument(string & destination)
+    {
+        remaining_arg = &destination;
+    }
+
+    void remaining_arguments(vector<string> & destination)
     {
         remaining_args = &destination;
     }
@@ -112,10 +117,27 @@ public:
         int i = 0;
         for(; i < argc; ++i)
         {
-            string name = argv[i];
+            string arg = argv[i];
 
-            if (name[0] != '-')
-                break;
+            if (arg[0] != '-')
+            {
+                ++remaining_arg_count;
+                if (remaining_args)
+                {
+                    remaining_args->push_back(arg);
+                }
+                else if (remaining_arg && remaining_arg_count == 1)
+                {
+                    *remaining_arg = arg;
+                }
+                else
+                {
+                    throw Error("Unexpected argument: " + arg);
+                }
+                continue;
+            }
+
+            string name = arg;
 
             auto option_it = options.find(name);
             if (option_it == options.end())
@@ -146,23 +168,13 @@ public:
 
             option.parser(params);
         }
-
-        if (remaining_args)
-        {
-            for(; i < argc; ++i)
-            {
-                remaining_args->push_back(argv[i]);
-            }
-        }
-        else if (i < argc)
-        {
-            throw Error(string("Invalid argument: ") + argv[i]);
-        }
     }
 
 private:
 
     unordered_map<string, Option> options;
+    int remaining_arg_count = 0;
+    string * remaining_arg = nullptr;
     vector<string> * remaining_args = nullptr;
 };
 
