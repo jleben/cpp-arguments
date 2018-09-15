@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <iostream>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
@@ -10,6 +11,7 @@ namespace Arguments {
 
 using std::string;
 using std::istringstream;
+using std::ostream;
 using std::unordered_map;
 using std::vector;
 using std::function;
@@ -17,10 +19,12 @@ using std::function;
 class Parser
 {
     using Option_Parser = function<void(const vector<string> &)>;
+    using Option_Printer = function<void(ostream&)>;
 
     struct Option
     {
         Option_Parser parser;
+        Option_Printer printer;
         int param_count = 0;
     };
 
@@ -72,6 +76,15 @@ public:
                 throw Invalid_Option_Param(name, value);
             }
         };
+
+        option.printer = [=](ostream & s)
+        {
+            s << name << " <" << typeid(destination).name() << ">";
+            if (!description.empty())
+            {
+                s << " : " << description;
+            }
+        };
     }
 
     void add_option(const string & name, string & destination, const string & description = string())
@@ -84,6 +97,15 @@ public:
         {
             destination = params[0];
         };
+
+        option.printer = [=](ostream & s)
+        {
+            s << name << " <string>";
+            if (!description.empty())
+            {
+                s << " : " << description;
+            }
+        };
     }
 
     void add_switch(const string & name, bool & destination, bool enable = true, const string & description = string())
@@ -95,6 +117,15 @@ public:
         option.parser = [name, enable, &destination](const vector<string> & params)
         {
             destination = enable;
+        };
+
+        option.printer = [=](ostream & s)
+        {
+            s << name;
+            if (!description.empty())
+            {
+                s << " : " << description;
+            }
         };
     }
 
@@ -167,6 +198,18 @@ public:
             }
 
             option.parser(params);
+        }
+    }
+
+    void print(ostream & s)
+    {
+        for (auto & option : options)
+        {
+            if (option.second.printer)
+            {
+                option.second.printer(s);
+                s << std::endl;
+            }
         }
     }
 
